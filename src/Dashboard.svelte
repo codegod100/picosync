@@ -1,26 +1,58 @@
-<script>
+<script lang="ts">
 import { onDestroy, onMount } from 'svelte'
 import { insertData, queryData, runMigrations } from './lib/sqlite.ts'
 import { persistDatabaseToDisk, syncDatabaseFromDisk } from './lib/sync.ts'
 import { ulid } from 'ulid'
 
-let users = $state([])
-let isLoading = $state(true)
-let showCreateForm = $state(false)
-let savedRows = $state(new Set())
+type UserRecord = {
+  id: string
+  name: string
+  email: string
+  role: string
+}
 
-let newUser = $state({ name: '', email: '', role: '' })
+let users = $state<UserRecord[]>([])
+let isLoading = $state(true)
+let savedRows = $state(new Set<string>())
+
+const firstNames = ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve', 'Frank', 'Grace', 'Heidi']
+const lastNames = ['Morg', 'Smith', 'Brown', 'Prince', 'Adams', 'Johnson', 'Taylor', 'Miller']
+const roles = ['Developer', 'Designer', 'Analyst', 'Tester', 'Manager']
+
+const pickRandom = (values: string[]) => values[Math.floor(Math.random() * values.length)]
+
+const generateUser = (): UserRecord => {
+  const first = pickRandom(firstNames)
+  const last = pickRandom(lastNames)
+  const id = ulid()
+  return {
+    id,
+    name: `${first} ${last}`,
+    email: `${first.toLowerCase()}.${last.toLowerCase()}@example.com`,
+    role: pickRandom(roles),
+  }
+}
+
+const highlightRow = (rowId: string) => {
+  const next = new Set(savedRows)
+  next.add(rowId)
+  savedRows = next
+
+  setTimeout(() => {
+    const removal = new Set(savedRows)
+    removal.delete(rowId)
+    savedRows = removal
+  }, 2000)
+}
 
 const loadUsers = async () => {
   try {
     isLoading = true
     const rows = await queryData('SELECT * FROM users ORDER BY id')
-    users = rows.map(row => ({
-      id: row[0],
-      name: row[1],
-      email: row[2],
-      role: row[3],
-    }))
+    users = rows.map(row => {
+      const [id, name, email, role] = row as [string, string, string, string]
+      return { id, name, email, role }
+    })
   } catch (err) {
     console.error('Error loading users:', err)
   } finally {
@@ -28,29 +60,25 @@ const loadUsers = async () => {
   }
 }
 
-const createUser = async event => {
-  event.preventDefault()
-  if (!newUser.name || !newUser.email || !newUser.role) return
-
+const createGeneratedUser = async () => {
   try {
-    const userId = ulid()
+    const user = generateUser()
     await insertData(
       'users',
       'id, name, email, role',
-      `'${userId}', '${newUser.name}', '${newUser.email}', '${newUser.role}'`,
+      `'${user.id}', '${user.name}', '${user.email}', '${user.role}'`,
     )
-    newUser = { name: '', email: '', role: '' }
-    showCreateForm = false
     await loadUsers()
     await persistDatabaseToDisk()
+    highlightRow(user.id)
   } catch (err) {
     console.error('Error creating user:', err)
   }
 }
 
-let saveTimeouts = new Map()
+let saveTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
 
-const debouncedSave = (originalUserId, rowElement) => {
+const debouncedSave = (originalUserId: string, rowElement: HTMLTableRowElement) => {
   if (saveTimeouts.has(originalUserId)) {
     clearTimeout(saveTimeouts.get(originalUserId))
   }
@@ -63,12 +91,14 @@ const debouncedSave = (originalUserId, rowElement) => {
   saveTimeouts.set(originalUserId, timeout)
 }
 
-const saveUser = async (userId, rowElement) => {
-  const cells = rowElement.querySelectorAll('[contenteditable]')
-  const id = cells[0].textContent.trim()
-  const name = cells[1].textContent.trim()
-  const email = cells[2].textContent.trim()
-  const role = cells[3].textContent.trim()
+const saveUser = async (userId: string, rowElement: HTMLTableRowElement) => {
+  const cells = rowElement.querySelectorAll<HTMLElement>('[contenteditable]')
+  if (cells.length < 4) return
+
+  const id = (cells[0].textContent ?? '').trim()
+  const name = (cells[1].textContent ?? '').trim()
+  const email = (cells[2].textContent ?? '').trim()
+  const role = (cells[3].textContent ?? '').trim()
 
   if (!id || !name || !email || !role) return
 
@@ -92,25 +122,22 @@ const saveUser = async (userId, rowElement) => {
       }
     }
 
+    highlightRow(id !== userId ? id : userId)
     await persistDatabaseToDisk()
-
-    const savedId = id !== userId ? id : userId
-    savedRows.add(savedId)
-
-    setTimeout(() => {
-      savedRows.delete(savedId)
-    }, 2000)
   } catch (err) {
     console.error('Error updating user:', err)
   }
 }
 
-const deleteUser = async userId => {
+const deleteUser = async (userId: string) => {
   if (!confirm('Are you sure you want to delete this user?')) return
 
   try {
     await queryData(`DELETE FROM users WHERE id='${userId}'`)
     await loadUsers()
+    const removal = new Set(savedRows)
+    removal.delete(userId)
+    savedRows = removal
     await persistDatabaseToDisk()
   } catch (err) {
     console.error('Error deleting user:', err)
@@ -141,34 +168,11 @@ onDestroy(() => {
       <h1>SQLite Dashboard</h1>
       <p>Manage users with full CRUD operations</p>
       <div class="header-actions">
-        <button class="btn btn-primary" onclick={() => (showCreateForm = !showCreateForm)}>
-          {showCreateForm ? 'Cancel' : 'Add New User'}
+        <button class="btn btn-primary" onclick={createGeneratedUser}>
+          Add New User
         </button>
       </div>
     </header>
-
-    {#if showCreateForm}
-      <section class="create-form">
-        <h3>Create New User</h3>
-        <form onsubmit={createUser}>
-          <div class="form-group">
-            <label for="name">Name:</label>
-            <input id="name" type="text" bind:value={newUser.name} placeholder="Enter name" required />
-          </div>
-          <div class="form-group">
-            <label for="email">Email:</label>
-            <input id="email" type="email" bind:value={newUser.email} placeholder="Enter email" required />
-          </div>
-          <div class="form-group">
-            <label for="role">Role:</label>
-            <input id="role" type="text" bind:value={newUser.role} placeholder="Enter role" required />
-          </div>
-          <div class="form-actions">
-            <button type="submit" class="btn btn-success">Create User</button>
-          </div>
-        </form>
-      </section>
-    {/if}
 
     <section class="users-table">
       <h3>Users ({users.length})</h3>
@@ -197,14 +201,20 @@ onDestroy(() => {
                 <tr
                   data-user-id={user.id}
                   class:saved={savedRows.has(user.id)}
-                  oninput={(event) => debouncedSave(user.id, event.currentTarget)}
+                  oninput={(event) =>
+                    debouncedSave(
+                      user.id,
+                      event.currentTarget as HTMLTableRowElement,
+                    )}
                 >
                   <td contenteditable>{user.id}</td>
                   <td contenteditable>{user.name}</td>
                   <td contenteditable>{user.email}</td>
                   <td contenteditable>{user.role}</td>
                   <td>
-                    <button class="btn btn-danger" onclick={() => deleteUser(user.id)}>Delete</button>
+                    <button class="btn btn-danger" onclick={() => deleteUser(user.id)}>
+                      Delete
+                    </button>
                   </td>
                 </tr>
               {/each}
@@ -222,31 +232,6 @@ onDestroy(() => {
     justify-content: flex-end;
     gap: 1rem;
     margin-top: 1rem;
-  }
-
-  .create-form {
-    margin-top: 1.5rem;
-    padding: 1.5rem;
-    border: 1px solid var(--pico-form-element-border-color);
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  .create-form .form-group {
-    margin-bottom: 1rem;
-  }
-
-  .create-form label {
-    display: block;
-    margin-bottom: 0.35rem;
-    color: var(--pico-muted-color);
-    font-weight: 600;
-  }
-
-  .create-form input {
-    width: 100%;
-    padding: 0.75rem;
-    border-radius: 8px;
   }
 
   .users-table {

@@ -1,92 +1,172 @@
-import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
+import { sqlite3Worker1Promiser } from "@sqlite.org/sqlite-wasm";
 
 const log = console.log;
 const warn = console.warn;
-const error = console.error;
+const reportError = console.error;
 
-type Sqlite3Module = Awaited<ReturnType<typeof sqlite3InitModule>>;
-type SqliteDbHandle = InstanceType<Sqlite3Module["oo1"]["DB"]>;
-type SqliteOpfsApi = {
-  importDb: (filename: string, bytes: Uint8Array) => Promise<number>;
-};
+type WorkerPromiser = (
+  type: string,
+  args?: Record<string, unknown>,
+) => Promise<{
+  type: string;
+  messageId: string;
+  result?: Record<string, unknown>;
+}>;
+
 type SqliteValue = string | number | bigint | Uint8Array | null;
+
+let promiser: WorkerPromiser | null = null;
+let dbId: number | undefined;
+let initialized = false;
+let initializePromise: Promise<void> | null = null;
 
 const dbFilename = "app.sqlite3";
 
-let sqlite3Module: Sqlite3Module | null = null;
-let dbHandle: SqliteDbHandle | null = null;
-let initializePromise: Promise<void> | null = null;
+const normalizeError = (err: unknown): Error => {
+  if (err instanceof Error) return err;
 
-const ensureDatabase = async (initialBytes?: Uint8Array | null) => {
-  if (dbHandle) return;
+  if (typeof err === "object" && err && "result" in err) {
+    const message = (err as { result?: { message?: string } }).result?.message;
+    if (typeof message === "string") return new Error(message);
+  }
+
+  if (typeof err === "string") return new Error(err);
+  return new Error("Unknown SQLite error");
+};
+
+const ensurePromiser = async () => {
+  if (promiser) return promiser;
+
+  return new Promise<WorkerPromiser>((resolve, reject) => {
+    try {
+      const promiserFactory = sqlite3Worker1Promiser({
+        onready: (instance: WorkerPromiser) => {
+          promiser = instance;
+          resolve(instance);
+        },
+        onerror: (err: unknown) => reject(normalizeError(err)),
+      }) as WorkerPromiser;
+
+      // Some implementations return the factory synchronously
+      if (promiserFactory && !promiser) {
+        promiser = promiserFactory;
+      }
+    } catch (err) {
+      reject(normalizeError(err));
+    }
+  });
+};
+
+const canUseOpfs = () =>
+  typeof navigator !== "undefined" &&
+  !!(navigator.storage && "getDirectory" in navigator.storage) &&
+  typeof SharedArrayBuffer !== "undefined";
+
+const writeDatabaseToOpfs = async (bytes: Uint8Array) => {
+  if (!canUseOpfs()) return;
+  try {
+    const root = await navigator.storage.getDirectory();
+    const fileHandle = await root.getFileHandle(dbFilename, { create: true });
+    const writable = await fileHandle.createWritable();
+    const chunk = bytes.slice();
+    await writable.write(chunk);
+    await writable.close();
+    log("Seeded OPFS database from disk source");
+  } catch (err) {
+    warn("Failed writing database bytes to OPFS", err);
+  }
+};
+
+const tryOpenDatabase = async (promiserInstance: WorkerPromiser) => {
+  const candidates = [
+    `file:${dbFilename}?vfs=opfs`,
+    `file:${dbFilename}?vfs=kvvfs`,
+    ":memory:",
+  ];
+
+  for (const filename of candidates) {
+    try {
+      const response = await promiserInstance("open", { filename });
+      dbId = (response.result?.dbId as number | undefined) ?? undefined;
+      const resolvedFilename = response.result?.filename as string | undefined;
+      const vfs = response.result?.vfs as string | undefined;
+      const persisted = response.result?.persistent === true;
+      log("Opened SQLite database", {
+        filename: resolvedFilename ?? filename,
+        vfs,
+        persisted,
+      });
+      return;
+    } catch (err) {
+      warn(
+        "Failed to open database with filename",
+        filename,
+        normalizeError(err).message,
+      );
+    }
+  }
+
+  throw new Error("Unable to open SQLite database with any supported VFS");
+};
+
+const initializeDatabase = async (initialBytes?: Uint8Array | null) => {
+  if (initialized) return;
   if (initializePromise) {
     await initializePromise;
     return;
   }
 
   initializePromise = (async () => {
-    try {
-      log("Loading SQLite module...");
-      sqlite3Module = await sqlite3InitModule({
-        print: log,
-        printErr: error,
-      });
+    const instance = await ensurePromiser();
 
-      const opfsApi = (sqlite3Module as unknown as { opfs?: SqliteOpfsApi })
-        .opfs;
+    log("Loading SQLite worker configuration");
+    await instance("config-get", {});
 
-      if (opfsApi && sqlite3Module.oo1?.OpfsDb) {
-        if (initialBytes && initialBytes.byteLength > 0) {
-          try {
-            await opfsApi.importDb(dbFilename, initialBytes);
-          } catch (importErr) {
-            warn("Failed to import initial database into OPFS", importErr);
-          }
-        }
-        dbHandle = new sqlite3Module.oo1.OpfsDb(dbFilename);
-        log("Opened OPFS-backed SQLite database at", dbFilename);
-      } else {
-        warn("OPFS unavailable, using transient SQLite database");
-        dbHandle = new sqlite3Module.oo1.DB(dbFilename, "ct");
-        if (initialBytes && initialBytes.byteLength > 0) {
-          warn(
-            "Ignoring initial database bytes because persistent storage is unavailable",
-          );
-        }
-      }
-    } catch (err) {
-      error("Failed to initialize SQLite", err);
-      throw err;
+    if (initialBytes && initialBytes.byteLength > 0 && canUseOpfs()) {
+      await writeDatabaseToOpfs(initialBytes);
+    } else if (initialBytes && initialBytes.byteLength > 0) {
+      warn("Cannot seed database bytes because OPFS is unavailable");
     }
+
+    await tryOpenDatabase(instance);
+    initialized = true;
   })();
 
   try {
     await initializePromise;
+  } catch (err) {
+    initialized = false;
+    throw normalizeError(err);
   } finally {
     initializePromise = null;
   }
 };
 
-const getDbHandle = async () => {
-  await ensureDatabase();
-  if (!dbHandle) throw new Error("SQLite database handle is not available");
-  return dbHandle;
+const requireDbId = () => {
+  if (typeof dbId === "undefined")
+    throw new Error("SQLite database is not initialized");
+  return dbId;
 };
 
-const requireModule = () => {
-  if (!sqlite3Module) throw new Error("SQLite module not yet loaded");
-  return sqlite3Module;
+const exec = async (sql: string, options?: Record<string, unknown>) => {
+  const instance = await ensurePromiser();
+  const currentDbId = requireDbId();
+  const response = await instance("exec", {
+    dbId: currentDbId,
+    sql,
+    ...options,
+  });
+  return response.result ?? {};
 };
 
 export const initializeSQLite = async (initialBytes?: Uint8Array | null) => {
-  await ensureDatabase(initialBytes);
+  await initializeDatabase(initialBytes ?? undefined);
 };
 
 export const createTable = async (tableName: string, columns: string) => {
-  const db = await getDbHandle();
+  await initializeDatabase();
   const sql = `CREATE TABLE IF NOT EXISTS ${tableName} (${columns})`;
-  log("Executing SQL:", sql);
-  db.exec(sql);
+  await exec(sql);
 };
 
 export const insertData = async (
@@ -94,47 +174,51 @@ export const insertData = async (
   columns: string,
   values: string,
 ) => {
-  const db = await getDbHandle();
+  await initializeDatabase();
   const sql = `INSERT INTO ${tableName} (${columns}) VALUES (${values})`;
-  log("Executing SQL:", sql);
-  db.exec(sql);
+  await exec(sql);
 };
 
 export const queryData = async (sql: string) => {
-  const db = await getDbHandle();
-  const resultRows: SqliteValue[][] = [];
-  log("Executing SQL:", sql);
-  db.exec({ sql, rowMode: "array", resultRows });
-  return resultRows;
+  await initializeDatabase();
+  const response = await exec(sql, {
+    rowMode: "array",
+    resultRows: [] as SqliteValue[][],
+  });
+  const rows = Array.isArray(response.resultRows)
+    ? (response.resultRows as SqliteValue[][])
+    : [];
+  return rows;
 };
 
 export const exportDatabase = async (): Promise<Uint8Array> => {
-  const db = await getDbHandle();
-  const module = requireModule();
-  const pointer = (db as unknown as { pointer: number }).pointer;
-  const bytes = module.capi.sqlite3_js_db_export(pointer);
-  return new Uint8Array(bytes);
+  const instance = await ensurePromiser();
+  const currentDbId = requireDbId();
+  const response = await instance("export", { dbId: currentDbId });
+  const bytes = response.result?.byteArray;
+  if (bytes instanceof Uint8Array) return bytes;
+  if (bytes instanceof ArrayBuffer) return new Uint8Array(bytes);
+  throw new Error("Failed to export database bytes");
 };
 
-const runMigration = async (
-  version: number,
-  name: string,
-  up: () => Promise<void>,
-) => {
-  const rows = await queryData(
-    "SELECT MAX(version) FROM schema_migrations WHERE version = " + version,
-  );
-  const alreadyApplied = rows[0]?.[0] === version;
-  if (alreadyApplied) return;
+type Migration = {
+  version: number;
+  name: string;
+  up: () => Promise<void>;
+};
 
-  log(`Running migration ${version}: ${name}`);
-  await up();
+const runMigration = async (migration: Migration) => {
+  const result = await queryData(
+    `SELECT 1 FROM schema_migrations WHERE version = ${migration.version} LIMIT 1`,
+  );
+  if (result.length > 0) return;
+
+  await migration.up();
   await insertData(
     "schema_migrations",
     "version, name",
-    `${version}, '${name}'`,
+    `${migration.version}, '${migration.name}'`,
   );
-  log(`Migration ${version} applied`);
 };
 
 export const runMigrations = async () => {
@@ -143,11 +227,7 @@ export const runMigrations = async () => {
     "version INTEGER PRIMARY KEY, name TEXT, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP",
   );
 
-  const migrations: {
-    version: number;
-    name: string;
-    up: () => Promise<void>;
-  }[] = [
+  const migrations: Migration[] = [
     {
       version: 1,
       name: "create_users_table",
@@ -162,7 +242,7 @@ export const runMigrations = async () => {
       version: 2,
       name: "add_user_created_at",
       up: async () => {
-        await queryData(
+        await exec(
           "ALTER TABLE users ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP",
         );
       },
@@ -171,10 +251,10 @@ export const runMigrations = async () => {
 
   for (const migration of migrations) {
     try {
-      await runMigration(migration.version, migration.name, migration.up);
+      await runMigration(migration);
     } catch (err) {
-      error(`Migration ${migration.version} failed`, err);
-      throw err;
+      reportError("Migration failed", migration.version, migration.name, err);
+      throw normalizeError(err);
     }
   }
 };

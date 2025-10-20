@@ -6,3 +6,7 @@ declare module "*.svelte" {
   const component: ComponentType;
   export default component;
 }
+
+declare module "@sqlite.org/sqlite-wasm" {
+  export const sqlite3Worker1Promiser: (config?: unknown) => unknown;
+}
