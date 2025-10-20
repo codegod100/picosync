@@ -1,28 +1,33 @@
 {
-  "name": "build",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "build": "rsbuild build",
-    "daemon": "tsx daemon/server.ts",
-    "dev": "rsbuild dev",
-    "preview": "rsbuild preview",
-    "svelte-check": "svelte-check --tsconfig ./tsconfig.json"
-  },
-  "dependencies": {
-    "@picocss/pico": "^2.1.1",
-    "@sqlite.org/sqlite-wasm": "3.50.4-build1",
-    "capnweb": "^0.1.0",
-    "svelte": "^5.39.11",
-    "ulid": "^3.0.1",
-    "ws": "^8.18.0"
-  },
-  "devDependencies": {
-    "@rsbuild/core": "^1.5.14",
-    "@rsbuild/plugin-svelte": "^1.0.11",
-    "tsx": "^4.19.1",
-    "svelte-check": "^4.3.3",
-    "typescript": "^5.9.3"
-  }
+    "name": "build",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "build": "rsbuild build",
+        "postbuild": "cp -r dist/* static/",
+        "daemon": "tsx daemon/server.ts",
+        "worker:install": "npm install --prefix worker",
+        "worker:dev": "npm run --prefix worker dev",
+        "worker:deploy": "npm run --prefix worker deploy",
+        "worker:build": "npm run --prefix worker build",
+        "dev": "rsbuild dev",
+        "preview": "rsbuild preview",
+        "svelte-check": "svelte-check --tsconfig ./tsconfig.json"
+    },
+    "dependencies": {
+        "@picocss/pico": "^2.1.1",
+        "@sqlite.org/sqlite-wasm": "3.50.4-build1",
+        "capnweb": "^0.1.0",
+        "svelte": "^5.39.11",
+        "ulid": "^3.0.1",
+        "ws": "^8.18.0"
+    },
+    "devDependencies": {
+        "@rsbuild/core": "^1.5.14",
+        "@rsbuild/plugin-svelte": "^1.0.11",
+        "tsx": "^4.19.1",
+        "svelte-check": "^4.3.3",
+        "typescript": "^5.9.3"
+    }
 }

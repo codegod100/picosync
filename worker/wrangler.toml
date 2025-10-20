@@ -1,0 +1,32 @@
+name = "sqlite-sync-worker"
+main = "dist/index.js"
+compatibility_date = "2024-10-01"
+
+[dev]
+port = 8787
+
+[assets]
+directory = "../static"
+binding = "ASSETS"
+
+[durable_objects]
+bindings = [
+  { name = "SQLITE_STORAGE", class_name = "SqliteStorage" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["SqliteStorage"]
+
+[build]
+command = "npm run build"
+
+[[env.development.durable_objects]]
+bindings = [
+  { name = "SQLITE_STORAGE", class_name = "SqliteStorage", script_name = "sqlite-sync-worker" }
+]
+
+[[env.production.durable_objects]]
+bindings = [
+  { name = "SQLITE_STORAGE", class_name = "SqliteStorage", script_name = "sqlite-sync-worker" }
+]

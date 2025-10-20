@@ -1,4 +1,10 @@
+packages:
+  - .
+  - worker
+
 onlyBuiltDependencies:
   - core-js
   - esbuild
+  - sharp
   - svelte-preprocess
+  - workerd

@@ -1,7 +1,7 @@
 <script>
 import { onDestroy, onMount } from 'svelte'
-import { insertData, queryData, runMigrations } from './lib/sqlite.ts'
-import { persistDatabaseToDisk, syncDatabaseFromDisk } from './lib/sync.ts'
+import { insertData, queryData, runMigrations, exportDatabase } from './lib/sqlite.ts'
+import { persistDatabaseToDisk, syncDatabaseFromDisk, getDaemonStub } from './lib/sync.ts'
 import { ulid } from 'ulid'
 import Dashboard from './Dashboard.svelte'
 import Spinner from './lib/Spinner.svelte'
@@ -73,6 +73,38 @@ const loadData = async (query = '') => {
   }
 }
 
+const checkSync = async () => {
+  try {
+    const localBytes = await exportDatabase()
+    const stub = await getDaemonStub()
+    const remoteBytes = await stub.fetchDatabase()
+    if (!remoteBytes || remoteBytes.length === 0) {
+      console.log('Remote is empty, syncing local to remote...')
+      await persistDatabaseToDisk()
+      console.log('Sync completed, re-checking...')
+      const newRemoteBytes = await stub.fetchDatabase()
+      const newRemoteSize = newRemoteBytes ? newRemoteBytes.length : 0
+      console.log('After sync, remote size:', newRemoteSize, 'local size:', localBytes.length)
+      if (newRemoteSize === localBytes.length) {
+        console.log('Sync successful')
+      } else {
+        console.log('Sync failed')
+      }
+    } else {
+      const localSize = localBytes.length
+      const remoteSize = remoteBytes.length
+      const synced = localSize === remoteSize && localBytes.every((b, i) => b === remoteBytes[i])
+      if (synced) {
+        console.log('Databases are synced, size:', localSize)
+      } else {
+        console.log('Databases are not synced, local size:', localSize, 'remote size:', remoteSize)
+      }
+    }
+  } catch (err) {
+    console.error('Error checking sync:', err)
+  }
+}
+
 onMount(async () => {
   try {
     currentView = getRouteFromUrl()
@@ -101,13 +133,21 @@ onMount(async () => {
         )
       }
 
-      await persistDatabaseToDisk()
+      try {
+        await persistDatabaseToDisk()
+      } catch (err) {
+        console.error('Error persisting database after insert:', err)
+      }
     }
 
     await loadData()
     initialLoad = false
     databaseReady = true
-    await persistDatabaseToDisk()
+    try {
+      await persistDatabaseToDisk()
+    } catch (err) {
+      console.error('Error persisting database after load:', err)
+    }
   } catch (err) {
     console.error('Error initializing app:', err)
     error =
@@ -178,6 +218,8 @@ onDestroy(() => {
         bind:value={searchQuery}
         class="input"
       />
+
+      <button class="btn btn-secondary" onclick={checkSync}>Check Sync</button>
 
       <table class="table">
         <thead>

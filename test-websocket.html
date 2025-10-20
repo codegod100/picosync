@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test</title>
+</head>
+<body>
+    <h1>WebSocket Test</h1>
+    <div id="status">Connecting...</div>
+    <div id="messages"></div>
+
+    <script>
+        const status = document.getElementById('status');
+        const messages = document.getElementById('messages');
+        
+        function log(message) {
+            console.log(message);
+            messages.innerHTML += '<div>' + message + '</div>';
+        }
+        
+        try {
+            const ws = new WebSocket('ws://localhost:8787/rpc');
+            
+            ws.onopen = function() {
+                status.textContent = 'Connected!';
+                log('WebSocket connected');
+            };
+            
+            ws.onmessage = function(event) {
+                log('Received: ' + event.data);
+            };
+            
+            ws.onerror = function(error) {
+                status.textContent = 'Error!';
+                log('WebSocket error: ' + error);
+            };
+            
+            ws.onclose = function(event) {
+                status.textContent = 'Closed';
+                log('WebSocket closed: ' + event.code + ' ' + event.reason);
+            };
+            
+        } catch (error) {
+            status.textContent = 'Failed to create WebSocket';
+            log('Error creating WebSocket: ' + error);
+        }
+    </script>
+</body>
+</html>
