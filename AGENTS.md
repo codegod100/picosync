@@ -2,7 +2,7 @@
 
 ## Commands
 - **Build**: `pnpm build`
-- **Dev server**: `pnpm dev`
+- **Dev server**: `pnpm dev` ⚠️ **Do NOT auto-start** - long-lived daemon interferes with development
 - **Preview**: `pnpm preview`
 - **Type check**: `pnpm svelte-check`
 - **No test framework configured**

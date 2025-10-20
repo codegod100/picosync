@@ -1,101 +1,138 @@
 <script>
-  import { onMount } from 'svelte';
-  import { createTable, insertData, queryData } from './lib/sqlite.ts';
+import { onDestroy, onMount } from 'svelte'
+import { insertData, queryData, runMigrations } from './lib/sqlite.ts'
+import { persistDatabaseToDisk, syncDatabaseFromDisk } from './lib/sync.ts'
+import { ulid } from 'ulid'
 
-  let users = $state([]);
-  let isLoading = $state(true);
-  let showCreateForm = $state(false);
-  let editingUser = $state(null);
+let users = $state([])
+let isLoading = $state(true)
+let showCreateForm = $state(false)
+let savedRows = $state(new Set())
 
-  // Form data
-  let newUser = $state({ name: '', email: '', role: '' });
-  let editUser = $state({ id: null, name: '', email: '', role: '' });
+let newUser = $state({ name: '', email: '', role: '' })
 
-  const loadUsers = async () => {
-    try {
-      isLoading = true;
-      const rows = await queryData('SELECT * FROM users ORDER BY id');
-      users = rows.map(row => ({
-        id: row[0],
-        name: row[1],
-        email: row[2],
-        role: row[3],
-      }));
-    } catch (error) {
-      console.error('Error loading users:', error);
-    } finally {
-      isLoading = false;
-    }
-  };
+const loadUsers = async () => {
+  try {
+    isLoading = true
+    const rows = await queryData('SELECT * FROM users ORDER BY id')
+    users = rows.map(row => ({
+      id: row[0],
+      name: row[1],
+      email: row[2],
+      role: row[3],
+    }))
+  } catch (err) {
+    console.error('Error loading users:', err)
+  } finally {
+    isLoading = false
+  }
+}
 
-  const createUser = async (event) => {
-    event.preventDefault();
-    if (!newUser.name || !newUser.email || !newUser.role) return;
+const createUser = async event => {
+  event.preventDefault()
+  if (!newUser.name || !newUser.email || !newUser.role) return
 
-    try {
-      await insertData('users', 'name, email, role', `'${newUser.name}', '${newUser.email}', '${newUser.role}'`);
-      newUser = { name: '', email: '', role: '' };
-      showCreateForm = false;
-      await loadUsers();
-    } catch (error) {
-      console.error('Error creating user:', error);
-    }
-  };
+  try {
+    const userId = ulid()
+    await insertData(
+      'users',
+      'id, name, email, role',
+      `'${userId}', '${newUser.name}', '${newUser.email}', '${newUser.role}'`,
+    )
+    newUser = { name: '', email: '', role: '' }
+    showCreateForm = false
+    await loadUsers()
+    await persistDatabaseToDisk()
+  } catch (err) {
+    console.error('Error creating user:', err)
+  }
+}
 
-  const startEdit = (user) => {
-    editingUser = user.id;
-    editUser = { ...user };
-  };
+let saveTimeouts = new Map()
 
-  const cancelEdit = () => {
-    editingUser = null;
-    editUser = { id: null, name: '', email: '', role: '' };
-  };
+const debouncedSave = (originalUserId, rowElement) => {
+  if (saveTimeouts.has(originalUserId)) {
+    clearTimeout(saveTimeouts.get(originalUserId))
+  }
 
-  const updateUser = async () => {
-    if (!editUser.id || !editUser.name || !editUser.email || !editUser.role) return;
+  const timeout = setTimeout(() => {
+    saveUser(originalUserId, rowElement)
+    saveTimeouts.delete(originalUserId)
+  }, 1000)
 
-    try {
-      // If ID changed, we need to handle it differently since it's the primary key
-      if (editUser.id !== editingUser) {
-        // Insert new record with new ID
-        await insertData('users', 'id, name, email, role', `${editUser.id}, '${editUser.name}', '${editUser.email}', '${editUser.role}'`);
-        // Delete old record
-        await queryData(`DELETE FROM users WHERE id=${editingUser}`);
-      } else {
-        // Simple update
-        const sql = `UPDATE users SET name='${editUser.name}', email='${editUser.email}', role='${editUser.role}' WHERE id=${editUser.id}`;
-        await queryData(sql);
+  saveTimeouts.set(originalUserId, timeout)
+}
+
+const saveUser = async (userId, rowElement) => {
+  const cells = rowElement.querySelectorAll('[contenteditable]')
+  const id = cells[0].textContent.trim()
+  const name = cells[1].textContent.trim()
+  const email = cells[2].textContent.trim()
+  const role = cells[3].textContent.trim()
+
+  if (!id || !name || !email || !role) return
+
+  try {
+    if (id !== userId) {
+      await insertData(
+        'users',
+        'id, name, email, role',
+        `'${id}', '${name}', '${email}', '${role}'`,
+      )
+      await queryData(`DELETE FROM users WHERE id='${userId}'`)
+      await loadUsers()
+    } else {
+      const sql = `UPDATE users SET name='${name}', email='${email}', role='${role}' WHERE id='${id}'`
+      await queryData(sql)
+
+      const userIndex = users.findIndex(user => user.id === userId)
+      if (userIndex !== -1) {
+        users[userIndex] = { id, name, email, role }
+        users = [...users]
       }
-
-      editingUser = null;
-      editUser = { id: null, name: '', email: '', role: '' };
-      await loadUsers();
-    } catch (error) {
-      console.error('Error updating user:', error);
     }
-  };
 
-  const deleteUser = async (userId) => {
-    if (!confirm('Are you sure you want to delete this user?')) return;
+    await persistDatabaseToDisk()
 
-    try {
-      await queryData(`DELETE FROM users WHERE id=${userId}`);
-      await loadUsers();
-    } catch (error) {
-      console.error('Error deleting user:', error);
-    }
-  };
+    const savedId = id !== userId ? id : userId
+    savedRows.add(savedId)
 
-  onMount(async () => {
-    try {
-      // Ensure table exists
-      await createTable('users', 'id INTEGER PRIMARY KEY, name TEXT, email TEXT, role TEXT');
-      await loadUsers();
-    } catch (error) {
-      console.error('Error initializing dashboard:', error);
-    }
-  });
+    setTimeout(() => {
+      savedRows.delete(savedId)
+    }, 2000)
+  } catch (err) {
+    console.error('Error updating user:', err)
+  }
+}
+
+const deleteUser = async userId => {
+  if (!confirm('Are you sure you want to delete this user?')) return
+
+  try {
+    await queryData(`DELETE FROM users WHERE id='${userId}'`)
+    await loadUsers()
+    await persistDatabaseToDisk()
+  } catch (err) {
+    console.error('Error deleting user:', err)
+  }
+}
+
+onMount(async () => {
+  try {
+    await syncDatabaseFromDisk()
+    await runMigrations()
+    await loadUsers()
+  } catch (err) {
+    console.error('Error initializing dashboard:', err)
+  }
+})
+
+onDestroy(() => {
+  for (const timeout of saveTimeouts.values()) {
+    clearTimeout(timeout)
+  }
+  saveTimeouts.clear()
+})
 </script>
 
 <main class="container">
@@ -104,7 +141,7 @@
       <h1>SQLite Dashboard</h1>
       <p>Manage users with full CRUD operations</p>
       <div class="header-actions">
-        <button class="btn btn-primary" onclick={() => showCreateForm = !showCreateForm}>
+        <button class="btn btn-primary" onclick={() => (showCreateForm = !showCreateForm)}>
           {showCreateForm ? 'Cancel' : 'Add New User'}
         </button>
       </div>
@@ -116,37 +153,19 @@
         <form onsubmit={createUser}>
           <div class="form-group">
             <label for="name">Name:</label>
-            <input
-              id="name"
-              type="text"
-              bind:value={newUser.name}
-              placeholder="Enter name"
-              required
-            />
+            <input id="name" type="text" bind:value={newUser.name} placeholder="Enter name" required />
           </div>
           <div class="form-group">
             <label for="email">Email:</label>
-            <input
-              id="email"
-              type="email"
-              bind:value={newUser.email}
-              placeholder="Enter email"
-              required
-            />
+            <input id="email" type="email" bind:value={newUser.email} placeholder="Enter email" required />
           </div>
           <div class="form-group">
             <label for="role">Role:</label>
-            <input
-              id="role"
-              type="text"
-              bind:value={newUser.role}
-              placeholder="Enter role"
-              required
-            />
+            <input id="role" type="text" bind:value={newUser.role} placeholder="Enter role" required />
           </div>
-           <div class="form-actions">
-             <button type="submit" class="btn btn-success">Create User</button>
-           </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-success">Create User</button>
+          </div>
         </form>
       </section>
     {/if}
@@ -155,162 +174,131 @@
       <h3>Users ({users.length})</h3>
 
       {#if isLoading}
-        <p>Loading users...</p>
+        <div class="loading-container">
+          <div class="spinner"></div>
+          <span>Loading users from database...</span>
+        </div>
       {:else if users.length === 0}
-        <p>No users found. <button class="btn btn-link" onclick={() => showCreateForm = true}>Create your first user</button></p>
+        <p>No users found. Create one to get started.</p>
       {:else}
-        <table class="table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Role</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each users as user (user.id)}
+        <div class="table-wrapper">
+          <table class="table editable">
+            <thead>
               <tr>
-                {#if editingUser === user.id}
-                  <td>
-                    <input
-                      type="number"
-                      bind:value={editUser.id}
-                      placeholder="ID"
-                      required
-                      class="table-input"
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="text"
-                      bind:value={editUser.name}
-                      placeholder="Name"
-                      required
-                      class="table-input"
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="email"
-                      bind:value={editUser.email}
-                      placeholder="Email"
-                      required
-                      class="table-input"
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="text"
-                      bind:value={editUser.role}
-                      placeholder="Role"
-                      required
-                      class="table-input"
-                    />
-                  </td>
-                  <td class="action-buttons">
-                    <button class="btn btn-success btn-sm" onclick={updateUser}>Save</button>
-                    <button class="btn btn-secondary btn-sm" onclick={cancelEdit}>Cancel</button>
-                  </td>
-                {:else}
-                  <td>{user.id}</td>
-                  <td>{user.name}</td>
-                  <td>{user.email}</td>
-                  <td>{user.role}</td>
-                  <td class="action-buttons">
-                    <button class="btn btn-primary btn-sm" onclick={() => startEdit(user)}>Edit</button>
-                    <button class="btn btn-danger btn-sm" onclick={() => deleteUser(user.id)}>Delete</button>
-                  </td>
-                {/if}
+                <th>ID</th>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th></th>
               </tr>
-            {/each}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {#each users as user}
+                <tr
+                  data-user-id={user.id}
+                  class:saved={savedRows.has(user.id)}
+                  oninput={(event) => debouncedSave(user.id, event.currentTarget)}
+                >
+                  <td contenteditable>{user.id}</td>
+                  <td contenteditable>{user.name}</td>
+                  <td contenteditable>{user.email}</td>
+                  <td contenteditable>{user.role}</td>
+                  <td>
+                    <button class="btn btn-danger" onclick={() => deleteUser(user.id)}>Delete</button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
       {/if}
     </section>
   </article>
 </main>
 
 <style>
-  .create-form {
-    margin: 1rem 0;
-    padding: 1rem;
-    border: 1px solid #ddd;
-    border-radius: 0.5rem;
-    background: #f9f9f9;
+  .header-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    margin-top: 1rem;
   }
 
-  .form-group {
+  .create-form {
+    margin-top: 1.5rem;
+    padding: 1.5rem;
+    border: 1px solid var(--pico-form-element-border-color);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .create-form .form-group {
     margin-bottom: 1rem;
   }
 
-  .form-group label {
+  .create-form label {
     display: block;
-    margin-bottom: 0.5rem;
-    font-weight: bold;
+    margin-bottom: 0.35rem;
+    color: var(--pico-muted-color);
+    font-weight: 600;
   }
 
-  .form-group input {
+  .create-form input {
     width: 100%;
-    padding: 0.5rem;
-    border: 1px solid #ccc;
-    border-radius: 0.25rem;
+    padding: 0.75rem;
+    border-radius: 8px;
   }
 
-  .btn-sm {
-    padding: 0.25rem 0.5rem;
-    font-size: 0.875rem;
-    margin-right: 0.25rem;
-    min-width: 60px;
+  .users-table {
+    margin-top: 2rem;
   }
 
-  .btn {
-    min-width: 100px;
+  .table-wrapper {
+    overflow-x: auto;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
 
-  .btn-link {
-    background: none;
-    border: none;
-    color: #007bff;
-    text-decoration: underline;
-    cursor: pointer;
-    padding: 0;
+  .table.editable td[contenteditable] {
+    cursor: text;
+    background: rgba(255, 255, 255, 0.02);
   }
 
-  .btn-link:hover {
-    color: #0056b3;
+  tr.saved {
+    animation: savedFlash 0.6s ease;
   }
 
-  .action-buttons {
+  @keyframes savedFlash {
+    0% {
+      background-color: rgba(64, 160, 43, 0.1);
+    }
+    100% {
+      background-color: transparent;
+    }
+  }
+
+  .loading-container {
     display: flex;
-    gap: 0.5rem;
     align-items: center;
+    gap: 0.75rem;
+    color: var(--pico-muted-color);
   }
 
-  .action-buttons .btn-sm {
-    margin-right: 0; /* Remove individual margin since we're using gap */
+  .spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top: 2px solid rgba(255, 255, 255, 0.9);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
   }
 
-  .form-actions {
-    margin-top: 1rem;
-    display: flex;
-    justify-content: flex-end;
-  }
-
-  .header-actions {
-    margin-top: 1rem;
-  }
-
-  .table-input {
-    width: 100%;
-    padding: 0.25rem;
-    border: 1px solid #ccc;
-    border-radius: 0.25rem;
-    font-size: 0.875rem;
-  }
-
-  .action-buttons {
-    min-width: 140px; /* Ensure consistent column width */
+  @keyframes spin {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
   }
 </style>

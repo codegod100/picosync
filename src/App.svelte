@@ -1,93 +1,165 @@
 <script>
-  import { onMount } from 'svelte';
-  import { createTable, insertData, queryData } from './lib/sqlite.ts';
-  import Dashboard from './Dashboard.svelte';
+import { onDestroy, onMount } from 'svelte'
+import { insertData, queryData, runMigrations } from './lib/sqlite.ts'
+import { persistDatabaseToDisk, syncDatabaseFromDisk } from './lib/sync.ts'
+import { ulid } from 'ulid'
+import Dashboard from './Dashboard.svelte'
 
-  let currentView = $state('home'); // 'home' or 'dashboard'
-  let fixtureData = $state([]);
-  let searchQuery = $state('');
-  let filteredData = $derived(fixtureData.filter(item =>
-    item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.email.toLowerCase().includes(searchQuery.toLowerCase())
-  ));
+let currentView = $state('home')
+let fixtureData = $state([])
+let searchQuery = $state('')
+let isLoading = $state(true)
+let error = $state(null)
+let databaseReady = $state(false)
 
-  const loadData = async (query = '') => {
-    try {
-      let sql = 'SELECT * FROM users';
-      if (query) {
-        sql += ` WHERE name LIKE '%${query}%' OR email LIKE '%${query}%' OR role LIKE '%${query}%'`;
+const fuzzyMatch = (text, query) => {
+  if (!query) return true
+  const textLower = text.toLowerCase()
+  const queryLower = query.toLowerCase()
+  let queryIndex = 0
+
+  for (let i = 0; i < textLower.length && queryIndex < queryLower.length; i++) {
+    if (textLower[i] === queryLower[queryIndex]) queryIndex++
+  }
+
+  return queryIndex === queryLower.length
+}
+
+let filteredData = $derived(
+  fixtureData.filter(
+    item =>
+      fuzzyMatch(item.name, searchQuery) ||
+      fuzzyMatch(item.email, searchQuery) ||
+      fuzzyMatch(item.role, searchQuery),
+  ),
+)
+
+const getRouteFromUrl = () => {
+  const hash = window.location.hash.slice(1)
+  return hash === 'dashboard' ? 'dashboard' : 'home'
+}
+
+const updateUrl = view => {
+  window.history.pushState(null, '', view === 'home' ? '/' : '/#dashboard')
+}
+
+const handlePopState = () => {
+  currentView = getRouteFromUrl()
+}
+
+const loadData = async (query = '') => {
+  try {
+    isLoading = true
+    error = null
+    let sql = 'SELECT * FROM users'
+    if (query) {
+      sql += ` WHERE name LIKE '%${query}%' OR email LIKE '%${query}%' OR role LIKE '%${query}%'`
+    }
+    console.log('Querying database with SQL:', sql)
+    const rows = await queryData(sql)
+    fixtureData = rows.map(row => ({
+      id: row[0],
+      name: row[1],
+      email: row[2],
+      role: row[3],
+    }))
+  } catch (err) {
+    console.error('Error querying SQLite:', err)
+    error = 'Failed to load data from database. Please try refreshing the page.'
+  } finally {
+    isLoading = false
+  }
+}
+
+onMount(async () => {
+  try {
+    currentView = getRouteFromUrl()
+    window.addEventListener('popstate', handlePopState)
+
+    await syncDatabaseFromDisk()
+    await runMigrations()
+
+    const countRows = await queryData('SELECT COUNT(*) FROM users')
+    const count = Number(countRows[0]?.[0] ?? 0)
+
+    if (count === 0) {
+      const data = [
+        { id: ulid(), name: 'Alice Morg', email: 'alice@example.com', role: 'Developer' },
+        { id: ulid(), name: 'Bob Smith', email: 'bob@example.com', role: 'Designer' },
+        { id: ulid(), name: 'Charlie Brown', email: 'charlie@example.com', role: 'Designer' },
+        { id: ulid(), name: 'Diana Prince', email: 'diana@example.com', role: 'Analyst' },
+        { id: ulid(), name: 'Eve Adams', email: 'eve@example.com', role: 'Tester' },
+      ]
+
+      for (const item of data) {
+        await insertData(
+          'users',
+          'id, name, email, role',
+          `'${item.id}', '${item.name}', '${item.email}', '${item.role}'`,
+        )
       }
-      console.log("Querying database with SQL:", sql);
-      const rows = await queryData(sql);
-      fixtureData = rows.map(row => ({
-        id: row[0],
-        name: row[1],
-        email: row[2],
-        role: row[3],
-      }));
-    } catch (error) {
-      console.error('Error querying SQLite:', error);
+
+      await persistDatabaseToDisk()
     }
-  };
 
-  onMount(async () => {
-    try {
-      // Create table
-      await createTable('users', 'id INTEGER PRIMARY KEY, name TEXT, email TEXT, role TEXT');
+    await loadData()
+    databaseReady = true
+    await persistDatabaseToDisk()
+  } catch (err) {
+    console.error('Error initializing app:', err)
+    error =
+      'Failed to initialize the application. Please check your browser compatibility and try again.'
+    isLoading = false
+  }
+})
 
-      // Check if data exists
-      const countRows = await queryData('SELECT COUNT(*) FROM users');
-      const count = countRows[0][0];
+$effect(() => {
+  if (databaseReady) loadData(searchQuery)
+})
 
-      if (count === 0) {
-        // Insert fixture data
-        const data = [
-          { id: 1, name: 'Alice Johnson', email: 'alice@example.com', role: 'Developer' },
-          { id: 2, name: 'Bob Smith', email: 'bob@example.com', role: 'Designer' },
-          { id: 3, name: 'Charlie Brown', email: 'charlie@example.com', role: 'Designer' },
-          { id: 4, name: 'Diana Prince', email: 'diana@example.com', role: 'Analyst' },
-          { id: 5, name: 'Eve Adams', email: 'eve@example.com', role: 'Tester' },
-        ];
+$effect(() => {
+  if (databaseReady && currentView === 'home') loadData(searchQuery)
+})
 
-        for (const item of data) {
-          await insertData('users', 'id, name, email, role', `${item.id}, '${item.name}', '${item.email}', '${item.role}'`);
-        }
-      }
-
-      // Load initial data
-      await loadData();
-    } catch (error) {
-      console.error('Error with SQLite:', error);
-    }
-  });
-
-  $effect(() => {
-    loadData(searchQuery);
-  });
-
-  // Reload data when switching back to home view
-  $effect(() => {
-    if (currentView === 'home') {
-      loadData(searchQuery);
-    }
-  });
+onDestroy(() => {
+  window.removeEventListener('popstate', handlePopState)
+})
 </script>
 
 <main class="container">
   <nav class="nav">
     <button
       class="btn {currentView === 'home' ? 'btn-primary' : 'btn-secondary'}"
-      onclick={() => currentView = 'home'}
+      onclick={() => {
+        currentView = 'home'
+        updateUrl('home')
+      }}
     >
       Home
     </button>
     <button
       class="btn {currentView === 'dashboard' ? 'btn-primary' : 'btn-secondary'}"
-      onclick={() => currentView = 'dashboard'}
+      onclick={() => {
+        currentView = 'dashboard'
+        updateUrl('dashboard')
+      }}
     >
       Dashboard
     </button>
   </nav>
+
+  {#if error}
+    <div class="error-banner">
+      <p>{error}</p>
+      <button
+        class="btn btn-secondary"
+        onclick={() => {
+          error = null
+          loadData(searchQuery)
+        }}
+      >Retry</button>
+    </div>
+  {/if}
 
   {#if currentView === 'dashboard'}
     <Dashboard />
@@ -97,7 +169,12 @@
       <p>Start building amazing things with Rsbuild.</p>
 
       <h2>Fixture Data</h2>
-      <input type="search" placeholder="Search by name or email" bind:value={searchQuery} class="input" />
+      <input
+        type="search"
+        placeholder="Search by name or email"
+        bind:value={searchQuery}
+        class="input"
+      />
 
       <table class="table">
         <thead>
@@ -109,7 +186,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each fixtureData as item}
+          {#each filteredData as item}
             <tr>
               <td>{item.id}</td>
               <td>{item.name}</td>
@@ -128,11 +205,33 @@
     margin-bottom: 2rem;
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem 1rem; /* horizontal gap, vertical gap */
+    gap: 0.5rem 1rem;
     align-items: flex-start;
   }
 
   .nav .btn {
     min-width: 100px;
+  }
+
+  .error-banner {
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    margin-bottom: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .error-banner p {
+    margin: 0;
+    flex-grow: 1;
+  }
+
+  .error-banner .btn {
+    margin-left: 1rem;
+    min-width: 80px;
   }
 </style>
