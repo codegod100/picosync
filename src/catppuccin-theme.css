@@ -1,0 +1,110 @@
+:root {
+  /* Catppuccin Mocha Theme for PicoCSS */
+  --pico-primary: #89b4fa; /* mocha-blue */
+  --pico-primary-inverse: #1e1e2e; /* mocha-base */
+  --pico-secondary: #cba6f7; /* mocha-mauve */
+  --pico-secondary-inverse: #cdd6f4; /* mocha-text */
+  --pico-background-color: #1e1e2e; /* mocha-base */
+  --pico-color: #cdd6f4; /* mocha-text */
+  --pico-text-selection-color: #89b4fa; /* mocha-blue */
+  --pico-muted-color: #bac2de; /* mocha-subtext1 */
+  --pico-muted-border-color: #45475a; /* mocha-surface1 */
+  --pico-primary-background: #89b4fa; /* mocha-blue */
+  --pico-primary-border: #89b4fa; /* mocha-blue */
+  --pico-primary-underline: #89b4fa; /* mocha-blue */
+  --pico-primary-hover-background: #74c7ec; /* mocha-sky */
+  --pico-primary-hover-border: #74c7ec; /* mocha-sky */
+  --pico-primary-focus-background: #89b4fa; /* mocha-blue */
+  --pico-primary-focus-border: #89b4fa; /* mocha-blue */
+  --pico-primary-inverse-background: #cdd6f4; /* mocha-text */
+  --pico-primary-inverse-border: #cdd6f4; /* mocha-text */
+  --pico-secondary-background: #cba6f7; /* mocha-mauve */
+  --pico-secondary-border: #cba6f7; /* mocha-mauve */
+  --pico-secondary-underline: #cba6f7; /* mocha-mauve */
+  --pico-secondary-hover-background: #f38ba8; /* mocha-red */
+  --pico-secondary-hover-border: #f38ba8; /* mocha-red */
+  --pico-secondary-focus-background: #cba6f7; /* mocha-mauve */
+  --pico-secondary-focus-border: #cba6f7; /* mocha-mauve */
+  --pico-secondary-inverse-background: #bac2de; /* mocha-subtext1 */
+  --pico-secondary-inverse-border: #bac2de; /* mocha-subtext1 */
+  --pico-contrast-background: #f38ba8; /* mocha-red */
+  --pico-contrast-border: #f38ba8; /* mocha-red */
+  --pico-contrast-underline: #f38ba8; /* mocha-red */
+  --pico-contrast-hover-background: #fab387; /* mocha-peach */
+  --pico-contrast-hover-border: #fab387; /* mocha-peach */
+  --pico-contrast-focus-background: #f38ba8; /* mocha-red */
+  --pico-contrast-focus-border: #f38ba8; /* mocha-red */
+  --pico-contrast-inverse-background: #a6adc8; /* mocha-subtext0 */
+  --pico-contrast-inverse-border: #a6adc8; /* mocha-subtext0 */
+  --pico-box-shadow: 0 0 0 1px #45475a; /* mocha-surface1 */
+  --pico-h1-color: #cdd6f4; /* mocha-text */
+  --pico-h2-color: #cdd6f4; /* mocha-text */
+  --pico-h3-color: #cdd6f4; /* mocha-text */
+  --pico-h4-color: #cdd6f4; /* mocha-text */
+  --pico-h5-color: #cdd6f4; /* mocha-text */
+  --pico-h6-color: #cdd6f4; /* mocha-text */
+  --pico-mark-background-color: #fab387; /* mocha-peach */
+  --pico-mark-color: #1e1e2e; /* mocha-base */
+  --pico-ins-color: #a6e3a1; /* mocha-green */
+  --pico-del-color: #f38ba8; /* mocha-red */
+  --pico-blockquote-border-color: #cba6f7; /* mocha-mauve */
+  --pico-blockquote-footer-color: #bac2de; /* mocha-subtext1 */
+  --pico-button-box-shadow: 0 0 0 1px #45475a; /* mocha-surface1 */
+  --pico-button-hover-box-shadow: 0 0 0 1px #585b70; /* mocha-surface2 */
+  --pico-table-border-color: #45475a; /* mocha-surface1 */
+  --pico-table-row-stripped-background-color: #181825; /* mocha-mantle */
+  --pico-code-background-color: #11111b; /* mocha-crust */
+  --pico-code-color: #cdd6f4; /* mocha-text */
+  --pico-code-kbd-background-color: #45475a; /* mocha-surface1 */
+  --pico-code-kbd-color: #cdd6f4; /* mocha-text */
+  --pico-form-element-background-color: #181825; /* mocha-mantle */
+  --pico-form-element-border-color: #45475a; /* mocha-surface1 */
+  --pico-form-element-color: #cdd6f4; /* mocha-text */
+  --pico-form-element-placeholder-color: #bac2de; /* mocha-subtext1 */
+  --pico-form-element-active-background-color: #1e1e2e; /* mocha-base */
+  --pico-form-element-active-border-color: #cba6f7; /* mocha-mauve */
+  --pico-form-element-focus-color: #cdd6f4; /* mocha-text */
+  --pico-form-element-invalid-border-color: #f38ba8; /* mocha-red */
+  --pico-form-element-invalid-active-border-color: #f38ba8; /* mocha-red */
+  --pico-form-element-invalid-focus-border-color: #f38ba8; /* mocha-red */
+  --pico-form-element-valid-border-color: #a6e3a1; /* mocha-green */
+  --pico-form-element-valid-active-border-color: #a6e3a1; /* mocha-green */
+  --pico-form-element-valid-focus-border-color: #a6e3a1; /* mocha-green */
+  --pico-switch-background-color: #45475a; /* mocha-surface1 */
+  --pico-switch-checked-background-color: #89b4fa; /* mocha-blue */
+  --pico-range-border-color: #45475a; /* mocha-surface1 */
+  --pico-range-active-border-color: #cba6f7; /* mocha-mauve */
+  --pico-range-thumb-border-color: #45475a; /* mocha-surface1 */
+  --pico-loading-spinner-opacity: 0.8;
+  --pico-modal-overlay-background-color: rgba(30, 30, 46, 0.8); /* mocha-base with opacity */
+  --pico-progress-background-color: #45475a; /* mocha-surface1 */
+  --pico-progress-color: #89b4fa; /* mocha-blue */
+  --pico-tooltip-background-color: #1e1e2e; /* mocha-base */
+  --pico-tooltip-color: #cdd6f4; /* mocha-text */
+  --pico-accordion-border-color: #45475a; /* mocha-surface1 */
+  --pico-accordion-active-summary-color: #89b4fa; /* mocha-blue */
+  --pico-card-background-color: #181825; /* mocha-mantle */
+  --pico-card-border-color: #45475a; /* mocha-surface1 */
+  --pico-card-box-shadow: 0 0 0 1px #45475a; /* mocha-surface1 */
+  --pico-card-sectionning-background-color: #1e1e2e; /* mocha-base */
+  --pico-dropdown-background-color: #181825; /* mocha-mantle */
+  --pico-dropdown-border-color: #45475a; /* mocha-surface1 */
+  --pico-dropdown-box-shadow: 0 0 0 1px #45475a; /* mocha-surface1 */
+  --pico-dropdown-color: #cdd6f4; /* mocha-text */
+  --pico-dropdown-hover-background-color: #1e1e2e; /* mocha-base */
+  --pico-dropdown-hover-color: #89b4fa; /* mocha-blue */
+  --pico-dropdown-active-background-color: #cba6f7; /* mocha-mauve */
+  --pico-dropdown-active-color: #1e1e2e; /* mocha-base */
+  --pico-nav-element-marker-color: #cba6f7; /* mocha-mauve */
+  --pico-nav-element-hover-marker-color: #89b4fa; /* mocha-blue */
+  --pico-nav-element-active-marker-color: #f38ba8; /* mocha-red */
+  --pico-nav-link-color: #cdd6f4; /* mocha-text */
+  --pico-nav-link-hover-color: #89b4fa; /* mocha-blue */
+  --pico-nav-link-active-color: #f38ba8; /* mocha-red */
+  --pico-nav-link-visited-color: #cba6f7; /* mocha-mauve */
+  --pico-nav-submenu-marker: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23cba6f7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='9 18 15 12 9 6'%3e%3c/polyline%3e%3c/svg%3e"); /* mocha-mauve */
+  --pico-nav-submenu-background-color: #181825; /* mocha-mantle */
+  --pico-nav-submenu-border-color: #45475a; /* mocha-surface1 */
+  --pico-nav-submenu-color: #cdd6f4; /* mocha-text */
+  --pico-nav-submenu-hover-color: #89b4fa; /* mocha-blue */
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "beads": {
+      "type": "local",
+      // Or ["bun", "x", "my-mcp-command"]
+      "command": ["beads-mcp"],
+      "enabled": true,
+      "environment": {
+        "MY_ENV_VAR": "my_env_var_value",
+      },
+    },
+  },
+}
