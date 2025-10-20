@@ -4,6 +4,7 @@ import { insertData, queryData, runMigrations } from './lib/sqlite.ts'
 import { persistDatabaseToDisk, syncDatabaseFromDisk } from './lib/sync.ts'
 import { ulid } from 'ulid'
 import Dashboard from './Dashboard.svelte'
+import Spinner from './lib/Spinner.svelte'
 
 let currentView = $state('home')
 let fixtureData = $state([])
@@ -11,6 +12,7 @@ let searchQuery = $state('')
 let isLoading = $state(true)
 let error = $state(null)
 let databaseReady = $state(false)
+let initialLoad = $state(true)
 
 const fuzzyMatch = (text, query) => {
   if (!query) return true
@@ -103,6 +105,7 @@ onMount(async () => {
     }
 
     await loadData()
+    initialLoad = false
     databaseReady = true
     await persistDatabaseToDisk()
   } catch (err) {
@@ -186,14 +189,20 @@ onDestroy(() => {
           </tr>
         </thead>
         <tbody>
-          {#each filteredData as item}
+          {#if isLoading && initialLoad}
             <tr>
-              <td>{item.id}</td>
-              <td>{item.name}</td>
-              <td>{item.email}</td>
-              <td>{item.role}</td>
+              <td colspan="4" style="text-align: center;"><Spinner /></td>
             </tr>
-          {/each}
+          {:else}
+            {#each filteredData as item}
+              <tr>
+                <td>{item.id}</td>
+                <td>{item.name}</td>
+                <td>{item.email}</td>
+                <td>{item.role}</td>
+              </tr>
+            {/each}
+          {/if}
         </tbody>
       </table>
     </article>
